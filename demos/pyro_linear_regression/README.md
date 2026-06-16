@@ -1,4 +1,4 @@
-# Demo 3
+# Linear Regression with Pyro
 
 A small Pyro notebook demo for Bayesian regression.
 
