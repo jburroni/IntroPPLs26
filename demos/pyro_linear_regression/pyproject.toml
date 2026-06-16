@@ -1,0 +1,10 @@
+[project]
+name = "pyro_bayesian_regression"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "ipywidgets>=8.1.8",
+    "jupyterlab>=4.5.8",
+    "pyro-ppl>=1.9.1",
+    "seaborn>=0.13.2",
+]
