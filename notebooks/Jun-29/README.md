@@ -1,17 +1,12 @@
 # Notebooks
 
-Two hands-on activities for *Intro to Probabilistic Programming*, both built on the
-FOPPL evaluator from the lecture. Click a badge to open the notebook in Google Colab
+One hands-on activity for *Intro to Probabilistic Programming*, built on the
+FOPPL evaluator from the lecture. Click the badge to open the notebook in Google Colab
 and run it top to bottom. No setup is required.
 
-## Activity 5: The message interface and higher-order programs
+## Activity 6: MAP, RWMH, and HMC as controllers over the message interface
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jburroni/IntroPPLs26/blob/main/notebooks/Jun-26/activity-5-messaging-student.ipynb)
-
-
-## Activity: Exact enumeration with the message-interface evaluator
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jburroni/IntroPPLs26/blob/main/notebooks/Jun-26/activity-enumeration-8bit-executed.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jburroni/IntroPPLs26/blob/main/notebooks/Jun-29/activity-6-map-hmc-students.ipynb)
 
 ## Running locally
 
@@ -21,6 +16,6 @@ From the repository root:
 uv run jupyter lab
 ```
 
-Open either notebook under `notebooks/Jun-26/` and run the cells top to bottom. The first
-cell locates the `minippl` package automatically, so the notebooks run from wherever you
-open them.
+Open the notebook under `notebooks/Jun-29/` and run the cells top to bottom. The first
+cell locates the `minippl` package automatically, so the notebook runs from wherever you
+open it.
