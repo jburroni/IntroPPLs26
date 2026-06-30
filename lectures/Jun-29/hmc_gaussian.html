@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HMC on a Gaussian — exact dynamics vs leapfrog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* light theme · palette is semantic: warm = exact / conserved, cool = leapfrog / discrete */
+    --ink:        #F4F5F7;   /* page background */
+    --ink-2:      #FFFFFF;   /* lifted panel */
+    --ink-3:      #EDEFF3;   /* control wells */
+    --line:       #E0E3E9;   /* hairlines */
+    --grid:       rgba(40,55,85,0.10);
+    --grid-2:     rgba(40,55,85,0.22);
+    --txt:        #1E2536;   /* near-black slate */
+    --txt-dim:    #5C6678;
+    --txt-faint:  #97A0B2;
+    --exact:      #C9760E;   /* amber — closed-form orbit, energy conserved */
+    --exact-soft: rgba(201,118,14,0.14);
+    --leap:       #0E87A0;   /* teal — leapfrog hops, approximate */
+    --leap-soft:  rgba(14,135,160,0.14);
+    --good:       #2E9E5B;
+    --warn:       #DC5A33;   /* instability / rejection */
+    /* canvas-only colours */
+    --exact-glow:       rgba(201,118,14,0.25);
+    --leap-line:        rgba(14,135,160,0.72);
+    --leap-ghost-line:  rgba(14,135,160,0.20);
+    --leap-ghost-dot:   rgba(14,135,160,0.34);
+    --exact-ghost-line: rgba(201,118,14,0.30);
+    --connector:        rgba(90,100,122,0.85);
+    --band:             rgba(40,60,100,0.06);
+    --shadow: 0 1px 2px rgba(20,30,50,0.04), 0 14px 32px -16px rgba(20,30,50,0.20);
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --disp: "Space Grotesk", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(201,118,14,0.05), transparent 60%),
+      radial-gradient(1000px 700px at 10% 110%, rgba(14,135,160,0.05), transparent 60%),
+      var(--ink);
+    color:var(--txt);
+    font-family:var(--disp);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+
+  .wrap{ max-width:1180px; margin:0 auto; padding:28px 22px 56px; }
+
+  /* ---------- header ---------- */
+  header{ margin-bottom:22px; }
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.32em;
+    text-transform:uppercase; color:var(--txt-faint); margin:0 0 10px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .eyebrow::before{ content:""; width:26px; height:1px; background:var(--line); }
+  h1{
+    font-weight:600; font-size:clamp(26px,4.4vw,40px); letter-spacing:-0.02em;
+    margin:0; line-height:1.08;
+  }
+  h1 .a{ color:var(--exact); } h1 .b{ color:var(--leap); }
+  .lede{
+    color:var(--txt-dim); max-width:64ch; margin:12px 0 0; font-size:15px;
+  }
+  .lede code{ font-family:var(--mono); font-size:.9em; color:var(--txt); }
+
+  /* ---------- controls ---------- */
+  .console{
+    margin-top:20px; background:linear-gradient(180deg, #FFFFFF, #FAFBFC);
+    border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+    padding:16px 16px 14px;
+    display:grid; grid-template-columns:repeat(5,1fr); gap:14px 18px; align-items:end;
+  }
+  .ctrl label{
+    display:block; font-family:var(--mono); font-size:11px; letter-spacing:.05em;
+    color:var(--txt-dim); margin-bottom:7px; display:flex; justify-content:space-between; gap:8px;
+  }
+  .ctrl label b{ color:var(--txt); font-weight:500; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:3px; border-radius:3px;
+    background:var(--ink-3); outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:15px; height:15px; border-radius:50%;
+    background:var(--txt); border:3px solid var(--ink-2); box-shadow:0 0 0 1px var(--line);
+    transition:transform .08s ease, background .15s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{ transform:scale(1.12); }
+  input[type=range]::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background:var(--txt);
+    border:3px solid var(--ink-2); box-shadow:0 0 0 1px var(--line); cursor:pointer;
+  }
+  input[type=range]:focus-visible{ box-shadow:0 0 0 2px var(--leap); }
+
+  .console-actions{
+    grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    border-top:1px solid var(--line); margin-top:4px; padding-top:14px;
+  }
+  .seg{
+    display:inline-flex; background:var(--ink-3); border:1px solid var(--line);
+    border-radius:9px; padding:3px; gap:3px;
+  }
+  .seg span{ align-self:center; font-family:var(--mono); font-size:11px; color:var(--txt-faint);
+    letter-spacing:.08em; text-transform:uppercase; padding:0 8px 0 6px; }
+  .seg button{
+    font-family:var(--mono); font-size:12.5px; letter-spacing:.02em; border:0; cursor:pointer;
+    padding:7px 13px; border-radius:6px; background:transparent; color:var(--txt-dim);
+    transition:background .15s, color .15s;
+  }
+  .seg button[aria-pressed=true]{ color:#fff; font-weight:600; }
+  .seg button[data-int=exact][aria-pressed=true]{ background:var(--exact); }
+  .seg button[data-int=leapfrog][aria-pressed=true]{ background:var(--leap); }
+
+  .btn{
+    font-family:var(--disp); font-weight:500; font-size:14px; cursor:pointer;
+    padding:9px 16px; border-radius:9px; border:1px solid var(--line);
+    background:var(--ink-3); color:var(--txt); transition:border-color .15s, background .15s, transform .05s;
+  }
+  .btn:hover{ border-color:#C7CDD8; background:#E6E9EF; }
+  .btn:active{ transform:translateY(1px); }
+  .btn.primary{ background:var(--txt); color:#fff; border-color:var(--txt); font-weight:600; }
+  .btn.primary:hover{ background:#2C3548; border-color:#2C3548; }
+  .btn:focus-visible{ outline:none; box-shadow:0 0 0 2px var(--leap); }
+  .spacer{ flex:1 1 auto; }
+  .hint{ font-family:var(--mono); font-size:11.5px; color:var(--txt-faint); }
+  .hint b{ color:var(--warn); font-weight:600; }
+  .hint b.ok{ color:var(--good); }
+
+  /* ---------- panel grid ---------- */
+  .grid{
+    margin-top:18px; display:grid; gap:14px;
+    grid-template-columns:1.18fr 1fr;
+    grid-template-areas: "phase energy" "hist trace";
+  }
+  .panel{
+    background:var(--ink-2); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:13px 14px 10px; min-width:0; position:relative;
+  }
+  #p-phase{ grid-area:phase; }
+  #p-energy{ grid-area:energy; }
+  #p-hist{ grid-area:hist; }
+  #p-trace{ grid-area:trace; }
+
+  .phead{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:8px; }
+  .ptitle{ font-family:var(--mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--txt-dim); }
+  .pnote{ font-family:var(--mono); font-size:11px; color:var(--txt-faint); }
+  .zoom{ display:inline-flex; align-items:center; gap:4px; }
+  .zbtn{
+    font-family:var(--mono); font-size:14px; line-height:1; cursor:pointer;
+    width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid var(--line); background:var(--ink-3); color:var(--txt-dim); border-radius:7px;
+    transition:background .12s, color .12s, border-color .12s;
+  }
+  .zbtn:hover{ background:#E6E9EF; color:var(--txt); border-color:#C7CDD8; }
+  .zbtn:focus-visible{ outline:none; box-shadow:0 0 0 2px var(--leap); }
+  .zbtn.zreset{ width:auto; padding:0 9px; font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+  .zlvl{ font-family:var(--mono); font-size:11px; color:var(--txt-dim); min-width:34px; text-align:center; }
+  .legend{ display:flex; gap:14px; font-family:var(--mono); font-size:11px; color:var(--txt-dim); flex-wrap:wrap; }
+  .legend i{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .dot{ border-radius:50% !important; }
+
+  canvas{ display:block; width:100%; height:auto; }
+  #phase{ aspect-ratio:1/1; }
+  #energy{ aspect-ratio:1.42/1; }
+  #hist,#trace{ aspect-ratio:1.7/1; }
+
+  /* readout strip under energy */
+  .readouts{
+    display:grid; grid-template-columns:repeat(2,1fr); gap:8px 14px; margin-top:10px;
+    border-top:1px solid var(--line); padding-top:10px;
+  }
+  .ro{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .ro .k{ font-family:var(--mono); font-size:11px; color:var(--txt-faint); letter-spacing:.02em; }
+  .ro .v{ font-family:var(--mono); font-size:13.5px; color:var(--txt); }
+  .ro .v.gold{ color:var(--exact); } .ro .v.cyan{ color:var(--leap); }
+  .ro .v.good{ color:var(--good); } .ro .v.warn{ color:var(--warn); }
+
+  /* ---------- footer math ---------- */
+  .math{
+    margin-top:20px; border:1px solid var(--line); border-radius:14px; background:var(--ink-2);
+    padding:16px 18px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px 22px;
+  }
+  .math h3{ grid-column:1/-1; margin:0 0 2px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.22em; text-transform:uppercase; color:var(--txt-dim); font-weight:500; }
+  .meq{ font-family:var(--mono); font-size:13px; color:var(--txt); line-height:1.7; }
+  .meq .lab{ display:block; color:var(--txt-faint); font-size:11px; letter-spacing:.04em; margin-bottom:3px; }
+  .meq .gold{ color:var(--exact); } .meq .cyan{ color:var(--leap); } .meq .dim{ color:var(--txt-dim); }
+  sub{ font-size:.72em; }
+
+  @media (max-width:900px){
+    .console{ grid-template-columns:repeat(2,1fr); }
+    .grid{ grid-template-columns:1fr; grid-template-areas:"phase" "energy" "hist" "trace"; }
+    .math{ grid-template-columns:1fr; }
+  }
+  @media (max-width:520px){
+    .wrap{ padding:20px 14px 44px; }
+    .console{ grid-template-columns:1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Hamiltonian Monte Carlo · 1-D Gaussian posterior</p>
+    <h1>Exact orbits <span class="a">vs</span> the <span class="b">leapfrog</span> integrator</h1>
+    <p class="lede">
+      The target is <code>q ~ N(μ, σ²)</code>. Adding Gaussian momentum turns Hamiltonian
+      dynamics into a harmonic oscillator, so the trajectory has a closed form — a pure rotation
+      in phase space that conserves energy exactly. Leapfrog approximates that same orbit but rides a
+      nearby <em>shadow</em> energy level, and the resulting wobble in <code>H</code> is exactly what the
+      Metropolis step corrects. Trace a single proposal, then let the chain run.
+    </p>
+  </header>
+
+  <!-- ------- controls ------- -->
+  <div class="console" id="console">
+    <div class="ctrl">
+      <label for="mu">mean μ <b id="mu_v">0.0</b></label>
+      <input id="mu" type="range" min="-3" max="3" step="0.1" value="0">
+    </div>
+    <div class="ctrl">
+      <label for="sigma">std σ <b id="sigma_v">1.0</b></label>
+      <input id="sigma" type="range" min="0.3" max="3" step="0.05" value="1">
+    </div>
+    <div class="ctrl">
+      <label for="eps">step size ε <b id="eps_v">1.00</b></label>
+      <input id="eps" type="range" min="0.02" max="2.6" step="0.02" value="1.00">
+    </div>
+    <div class="ctrl">
+      <label for="L">leapfrog steps L <b id="L_v">5</b></label>
+      <input id="L" type="range" min="1" max="60" step="1" value="5">
+    </div>
+    <div class="ctrl">
+      <label for="mass">mass m <b id="mass_v">1.0</b></label>
+      <input id="mass" type="range" min="0.2" max="5" step="0.1" value="1">
+    </div>
+
+    <div class="console-actions">
+      <div class="seg" role="group" aria-label="Integrator used by the sampler">
+        <span>integrator</span>
+        <button data-int="exact" aria-pressed="false">Exact</button>
+        <button data-int="leapfrog" aria-pressed="true">Leapfrog</button>
+      </div>
+      <button class="btn" id="trace1">Trace one proposal</button>
+      <button class="btn primary" id="run">Run sampler</button>
+      <button class="btn" id="clear">Clear samples</button>
+      <div class="spacer"></div>
+      <div class="hint" id="stability">stable · εω = 0.30</div>
+    </div>
+  </div>
+
+  <!-- ------- panels ------- -->
+  <div class="grid">
+    <section class="panel" id="p-phase">
+      <div class="phead">
+        <span class="ptitle">Phase space (q, p)</span>
+        <span class="zoom" role="group" aria-label="Zoom phase space">
+          <button class="zbtn" id="zoom-out" aria-label="Zoom out">−</button>
+          <span class="zlvl" id="zoom-lvl">1.0×</span>
+          <button class="zbtn" id="zoom-in" aria-label="Zoom in">+</button>
+          <button class="zbtn zreset" id="zoom-reset">reset</button>
+        </span>
+      </div>
+      <canvas id="phase"></canvas>
+      <div class="legend" style="margin-top:9px">
+        <span><i style="background:var(--exact)"></i>exact orbit</span>
+        <span id="lg-leap"><i class="dot" style="background:var(--leap)"></i>leapfrog steps</span>
+        <span><i class="dot" style="background:var(--txt)"></i>start</span>
+        <span><i class="dot" style="background:var(--good)"></i>proposal</span>
+        <span><i style="width:14px; height:0; border-top:1px dotted var(--txt-dim); vertical-align:5px"></i>chain step · p resampled</span>
+      </div>
+    </section>
+
+    <section class="panel" id="p-energy">
+      <div class="phead">
+        <span class="ptitle">Energy along the trajectory</span>
+        <span class="pnote" id="energy-note">H vs time  (step × ε)</span>
+      </div>
+      <canvas id="energy"></canvas>
+      <div class="readouts">
+        <div class="ro"><span class="k">ω = 1/(σ√m)</span><span class="v" id="ro-omega">1.000</span></div>
+        <div class="ro"><span class="k">period 2π/ω</span><span class="v" id="ro-period">6.283</span></div>
+        <div class="ro"><span class="k">path length L·ε</span><span class="v" id="ro-path">2.40</span></div>
+        <div class="ro"><span class="k">↳ in periods</span><span class="v" id="ro-frac">0.38</span></div>
+        <div class="ro"><span class="k">H₀ (start)</span><span class="v gold" id="ro-h0">—</span></div>
+        <div class="ro"><span class="k" id="dh-label">max |ΔH| leapfrog</span><span class="v cyan" id="ro-dh">—</span></div>
+        <div class="ro"><span class="k">accept prob this draw</span><span class="v" id="ro-alpha">—</span></div>
+        <div class="ro"><span class="k">decision</span><span class="v" id="ro-acc">—</span></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-hist">
+      <div class="phead">
+        <span class="ptitle">Samples → target density</span>
+        <span class="pnote" id="hist-note">no samples yet</span>
+      </div>
+      <canvas id="hist"></canvas>
+      <div class="legend" style="margin-top:9px">
+        <span><i id="hist-swatch" style="background:var(--leap)"></i>sampler histogram</span>
+        <span><i style="background:var(--txt); height:2px; border-radius:2px; width:14px"></i>true N(μ, σ²)</span>
+      </div>
+    </section>
+
+    <section class="panel" id="p-trace">
+      <div class="phead">
+        <span class="ptitle">Trace of q</span>
+        <span class="pnote" id="trace-note">last 500 iterations</span>
+      </div>
+      <canvas id="trace"></canvas>
+      <div class="readouts">
+        <div class="ro"><span class="k">draws</span><span class="v" id="ro-n">0</span></div>
+        <div class="ro"><span class="k">acceptance rate</span><span class="v" id="ro-rate">—</span></div>
+        <div class="ro"><span class="k">empirical mean</span><span class="v" id="ro-mean">—</span></div>
+        <div class="ro"><span class="k">empirical std</span><span class="v" id="ro-std">—</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ------- governing equations ------- -->
+  <div class="math">
+    <h3>What the simulation integrates</h3>
+    <div class="meq">
+      <span class="lab">potential & Hamiltonian</span>
+      U(q) = (q−μ)² / 2σ²<br>
+      K(p) = p² / 2m<br>
+      H = U(q) + K(p)
+    </div>
+    <div class="meq">
+      <span class="lab gold">exact orbit — harmonic oscillator</span>
+      <span class="dim">x = q − μ,&nbsp; ω = 1/(σ√m)</span><br>
+      x(t) = x₀cos ωt + (p₀/mω) sin ωt<br>
+      p(t) = −mω x₀ sin ωt + p₀ cos ωt
+    </div>
+    <div class="meq">
+      <span class="lab cyan">leapfrog step (size ε)</span>
+      p ← p − (ε/2)·U′(q)<br>
+      q ← q + ε·p/m<br>
+      p ← p − (ε/2)·U′(q)
+    </div>
+    <div class="meq" style="grid-column:1/-1; border-top:1px solid var(--line); padding-top:12px;">
+      <span class="lab">one HMC iteration</span>
+      Draw <span class="dim">p₀ ~ N(0, m)</span>, simulate to a proposal (q*, p*), then accept with
+      probability <span class="gold">min(1, e^(H₀ − H*))</span>. Under exact dynamics H* = H₀, so every
+      proposal is accepted; leapfrog's energy error makes the Metropolis step do real work — yet both leave
+      the target N(μ, σ²) invariant. Push ε past <b style="color:var(--warn)">2σ√m</b> and leapfrog turns
+      unstable: the orbit spirals outward and acceptance collapses.
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  const $ = id => document.getElementById(id);
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- parameters / state ----------
+  const P = { mu:0, sigma:1, eps:1.0, L:5, m:1 };
+  let integrator = "leapfrog";
+  let chain = [];            // every accepted (or repeated) q value
+  let currentQ = 0;          // current chain position
+  let nAccept = 0, nTotal = 0;
+  let lastProposal = null;   // {exactPath, leapPts, H0, Hstar, alpha, accepted, p0}
+  let ghost = null;          // previous trajectory, kept faint to show the chain stepping
+  let phaseZoom = 1;         // phase-space zoom factor (>1 magnifies)
+  let anim = null;           // running trajectory animation handle
+
+  // ---------- math ----------
+  const Ugrad = q => (q - P.mu) / (P.sigma*P.sigma);
+  const U  = q => { const d=q-P.mu; return d*d/(2*P.sigma*P.sigma); };
+  const K  = p => p*p/(2*P.m);
+  const H  = (q,p) => U(q)+K(p);
+  const omega  = () => 1/(P.sigma*Math.sqrt(P.m));
+  const period = () => 2*Math.PI/omega();
+
+  function randn(){
+    let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random();
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  }
+
+  // exact evolution of (q,p) for time t  (closed-form rotation)
+  function exactEvolve(q,p,t){
+    const x=q-P.mu, w=omega(), c=Math.cos(w*t), s=Math.sin(w*t);
+    return [ (x*c + (p/(P.m*w))*s) + P.mu , (-P.m*w*x*s + p*c) ];
+  }
+  // densely sampled exact orbit from (q0,p0) over [0,T]
+  function exactPath(q0,p0,T,n){
+    const out=[]; for(let i=0;i<=n;i++){ const t=T*i/n; const [q,p]=exactEvolve(q0,p0,t); out.push([q,p,t]); }
+    return out;
+  }
+  // leapfrog (kick–drift–kick), recording synchronized states at each integer step
+  function leapfrogTraj(q0,p0){
+    let q=q0,p=p0; const pts=[{q,p,H:H(q,p)}];
+    for(let i=0;i<P.L;i++){
+      p -= 0.5*P.eps*Ugrad(q);
+      q += P.eps*p/P.m;
+      p -= 0.5*P.eps*Ugrad(q);
+      pts.push({q,p,H:H(q,p)});
+    }
+    return pts;
+  }
+
+  // one HMC proposal from q0 with a freshly drawn momentum
+  function propose(q0){
+    const p0 = randn()*Math.sqrt(P.m);
+    const T  = P.L*P.eps;
+    const H0 = H(q0,p0);
+    const ex = exactPath(q0,p0,T, Math.max(120, P.L*12));
+    const lp = leapfrogTraj(q0,p0);
+    const last = lp[lp.length-1];
+    // proposal energy depends on the integrator the chain is using
+    const Hstar = integrator==="exact" ? H(...exactEvolve(q0,p0,T)) : last.H;
+    const qStar = integrator==="exact" ? exactEvolve(q0,p0,T)[0] : last.q;
+    const alpha = Math.min(1, Math.exp(H0 - Hstar));
+    let dh=0; for(const s of lp) dh=Math.max(dh, Math.abs(s.H-H0));
+    return { p0, T, H0, Hstar, qStar, alpha, exactPath:ex, leapPts:lp, maxDH:dh };
+  }
+
+  // ---------- canvas helpers ----------
+  function fit(canvas){
+    const dpr=window.devicePixelRatio||1;
+    const r=canvas.getBoundingClientRect();
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx, w:r.width, h:r.height};
+  }
+  function scale(b){
+    const x0=b.padL, x1=b.w-b.padR, y0=b.h-b.padB, y1=b.padT;
+    return {
+      X:v => x0 + (v-b.xMin)/(b.xMax-b.xMin)*(x1-x0),
+      Y:v => y0 + (v-b.yMin)/(b.yMax-b.yMin)*(y1-y0),
+      x0,x1,y0,y1
+    };
+  }
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // ---------- PHASE SPACE ----------
+  const phaseCv = $("phase");
+  function propEnd(p, intg){
+    if(intg==="exact"){ const e=p.exactPath[p.exactPath.length-1]; return [e[0], e[1]]; }
+    const l=p.leapPts[p.leapPts.length-1]; return [l.q, l.p];
+  }
+  function phaseRanges(){
+    const qH=4*P.sigma/phaseZoom, pH=4*Math.sqrt(P.m)/phaseZoom;
+    return { xMin:P.mu-qH, xMax:P.mu+qH, yMin:-pH, yMax:pH };
+  }
+  function drawPhase(progress){
+    const {ctx,w,h}=fit(phaseCv);
+    const r=phaseRanges();
+    const b={...r, w,h, padL:42, padR:14, padT:14, padB:34};
+    const s=scale(b);
+    ctx.clearRect(0,0,w,h);
+
+    // frame
+    ctx.strokeStyle=css("--line"); ctx.lineWidth=1;
+    ctx.strokeRect(s.x0,s.y1,s.x1-s.x0,s.y0-s.y1);
+
+    // energy level sets — concentric ellipses centred at (μ,0). Their q:p axis ratio equals
+    // the frame's, so they are true H-contours and fill the view at any zoom level.
+    const qHalf=(r.xMax-r.xMin)/2, pHalf=(r.yMax-r.yMin)/2;
+    const fracs=[0.16,0.3,0.45,0.6,0.75,0.9,1.0];
+    ctx.lineWidth=1; ctx.strokeStyle=css("--grid");
+    for(const f of fracs){
+      ctx.beginPath();
+      for(let k=0;k<=180;k++){
+        const th=2*Math.PI*k/180;
+        const px=s.X(P.mu + f*qHalf*Math.cos(th)), py=s.Y(f*pHalf*Math.sin(th));
+        k?ctx.lineTo(px,py):ctx.moveTo(px,py);
+      }
+      ctx.stroke();
+    }
+    // axes through (μ,0)
+    ctx.strokeStyle=css("--grid-2"); ctx.setLineDash([3,4]);
+    ctx.beginPath(); ctx.moveTo(s.X(P.mu),s.y1); ctx.lineTo(s.X(P.mu),s.y0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(s.x0,s.Y(0)); ctx.lineTo(s.x1,s.Y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // axis labels
+    ctx.fillStyle=css("--txt-faint"); ctx.font='11px '+css("--mono");
+    ctx.textAlign="center"; ctx.fillText("q",(s.x0+s.x1)/2,h-9);
+    ctx.save(); ctx.translate(13,(s.y0+s.y1)/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText("p (momentum)",0,0); ctx.restore();
+    ctx.textAlign="left";
+
+    if(!lastProposal) return;
+    const clip=()=>{ ctx.save(); ctx.beginPath(); ctx.rect(s.x0,s.y1,s.x1-s.x0,s.y0-s.y1); ctx.clip(); };
+
+    // faint ghost of the previous trajectory + a connector to where this one starts,
+    // so the chain step (position kept, momentum resampled) is visible
+    if(ghost){
+      const gp=ghost.prop, gi=ghost.intg;
+      clip();
+      if(gi==="leapfrog"){
+        const gl=gp.leapPts;
+        ctx.strokeStyle=css("--leap-ghost-line"); ctx.lineWidth=1; ctx.beginPath();
+        let g0=false;
+        for(let i=0;i<gl.length;i++){ if(!isFinite(gl[i].q)||!isFinite(gl[i].p)) break; const px=s.X(gl[i].q),py=s.Y(gl[i].p); g0?ctx.lineTo(px,py):ctx.moveTo(px,py); g0=true; }
+        ctx.stroke();
+        ctx.fillStyle=css("--leap-ghost-dot");
+        for(let i=0;i<gl.length;i++){ if(!isFinite(gl[i].q)||!isFinite(gl[i].p)) break; ctx.beginPath(); ctx.arc(s.X(gl[i].q),s.Y(gl[i].p),1.8,0,7); ctx.fill(); }
+      } else {
+        const ge=gp.exactPath;
+        ctx.strokeStyle=css("--exact-ghost-line"); ctx.lineWidth=1.5; ctx.beginPath();
+        for(let i=0;i<ge.length;i++){ const px=s.X(ge[i][0]),py=s.Y(ge[i][1]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+        ctx.stroke();
+      }
+      const gEnd=propEnd(gp,gi);                       // previous endpoint
+      ctx.globalAlpha=0.55; ctx.fillStyle= gp.accepted?css("--good"):css("--warn");
+      ctx.beginPath(); ctx.arc(s.X(gEnd[0]),s.Y(gEnd[1]),3,0,7); ctx.fill(); ctx.globalAlpha=1;
+      const cs=lastProposal.leapPts[0];                // where this trajectory starts
+      ctx.strokeStyle=css("--connector"); ctx.lineWidth=1; ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(s.X(gEnd[0]),s.Y(gEnd[1])); ctx.lineTo(s.X(cs.q),s.Y(cs.p)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // exact orbit (gold), drawn up to `progress`
+    const ep=lastProposal.exactPath;
+    const nEx=Math.max(1,Math.floor(ep.length*progress));
+    clip();
+    ctx.strokeStyle=css("--exact"); ctx.lineWidth=2; ctx.lineJoin="round";
+    ctx.shadowColor=css("--exact-glow"); ctx.shadowBlur=6;
+    ctx.beginPath();
+    for(let i=0;i<nEx;i++){ const px=s.X(ep[i][0]), py=s.Y(ep[i][1]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+    ctx.stroke(); ctx.shadowBlur=0;
+    ctx.restore();
+
+    const lp=lastProposal.leapPts;
+
+    if(integrator==="leapfrog"){
+      // leapfrog steps (cyan) riding alongside the exact orbit
+      const nLp=Math.max(1,Math.floor((lp.length-1)*progress))+1;
+      clip();
+      ctx.strokeStyle=css("--leap-line"); ctx.lineWidth=1.25;
+      ctx.beginPath();
+      let st=false;
+      for(let i=0;i<nLp;i++){ if(!isFinite(lp[i].q)||!isFinite(lp[i].p)) break; const px=s.X(lp[i].q), py=s.Y(lp[i].p); st?ctx.lineTo(px,py):ctx.moveTo(px,py); st=true; }
+      ctx.stroke();
+      ctx.fillStyle=css("--leap");
+      for(let i=0;i<nLp;i++){ if(!isFinite(lp[i].q)||!isFinite(lp[i].p)) break; ctx.beginPath(); ctx.arc(s.X(lp[i].q),s.Y(lp[i].p),2.6,0,7); ctx.fill(); }
+      ctx.restore();
+    } else {
+      // exact mode: a single point gliding along the closed-form orbit — no discretisation
+      clip();
+      const tip=ep[Math.max(0,nEx-1)];
+      ctx.fillStyle=css("--exact");
+      ctx.beginPath(); ctx.arc(s.X(tip[0]),s.Y(tip[1]),3.4,0,7); ctx.fill();
+      ctx.restore();
+    }
+
+    // start point + proposal (drawn once fully traced); clipped so zoom doesn't spill them
+    clip();
+    const q0=lp[0].q, p0=lp[0].p;
+    ctx.fillStyle=css("--txt");
+    ctx.beginPath(); ctx.arc(s.X(q0),s.Y(p0),4.5,0,7); ctx.fill();
+    ctx.strokeStyle=css("--ink-2"); ctx.lineWidth=1.5; ctx.stroke();
+    if(progress>=0.999){
+      const endQ=integrator==="exact"?ep[ep.length-1][0]:lp[lp.length-1].q;
+      const endP=integrator==="exact"?ep[ep.length-1][1]:lp[lp.length-1].p;
+      ctx.fillStyle=lastProposal.accepted?css("--good"):css("--warn");
+      ctx.beginPath(); ctx.arc(s.X(endQ),s.Y(endP),4.5,0,7); ctx.fill();
+      ctx.strokeStyle=css("--ink-2"); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ---------- ENERGY ----------
+  const enCv=$("energy");
+  function drawEnergy(progress){
+    const {ctx,w,h}=fit(enCv);
+    ctx.clearRect(0,0,w,h);
+    if(!lastProposal){ placeholder(ctx,w,h,"trace a proposal to see H(t)"); return; }
+    const lp=lastProposal.leapPts, H0=lastProposal.H0, T=lastProposal.T;
+    let hi, lo;
+    if(integrator==="leapfrog"){
+      hi=H0; lo=H0;
+      for(const s of lp){ if(isFinite(s.H)){ hi=Math.max(hi,s.H); lo=Math.min(lo,s.H); } }
+      if(!isFinite(hi)) hi=H0*50+10;          // leapfrog diverged: show a tall window
+      const pad=(hi-lo)*0.18 || 0.5; hi+=pad; lo-=pad;
+    } else {
+      const d=Math.max(0.5, 0.4*H0); hi=H0+d; lo=H0-d;   // centre the conserved line
+    }
+    lo=Math.max(0,lo);
+    const b={xMin:0,xMax:T||1,yMin:lo,yMax:hi, w,h, padL:48, padR:14, padT:12, padB:30};
+    const s=scale(b);
+
+    ctx.strokeStyle=css("--line"); ctx.lineWidth=1; ctx.strokeRect(s.x0,s.y1,s.x1-s.x0,s.y0-s.y1);
+    // y gridlines
+    ctx.font='10px '+css("--mono"); ctx.fillStyle=css("--txt-faint"); ctx.textAlign="right";
+    for(let k=0;k<=4;k++){
+      const val=lo+(hi-lo)*k/4, y=s.Y(val);
+      ctx.strokeStyle=css("--grid"); ctx.beginPath(); ctx.moveTo(s.x0,y); ctx.lineTo(s.x1,y); ctx.stroke();
+      ctx.fillText(val.toFixed(2), s.x0-7, y+3);
+    }
+    ctx.textAlign="center"; ctx.fillText("time t", (s.x0+s.x1)/2, h-8);
+
+    // exact energy = flat line at H0 (gold), traced up to progress
+    ctx.strokeStyle=css("--exact"); ctx.lineWidth=2; ctx.setLineDash([6,4]);
+    const xEnd=s.X((T||1)*progress);
+    ctx.beginPath(); ctx.moveTo(s.x0,s.Y(H0)); ctx.lineTo(xEnd,s.Y(H0)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if(integrator==="leapfrog"){
+      // leapfrog energy (cyan) markers + line up to progress
+      const nLp=Math.max(1,Math.floor((lp.length-1)*progress))+1;
+      ctx.strokeStyle=css("--leap"); ctx.lineWidth=1.75;
+      ctx.beginPath();
+      let started=false;
+      for(let i=0;i<nLp;i++){ if(!isFinite(lp[i].H)) break; const t=i*P.eps, px=s.X(t), py=s.Y(lp[i].H); started?ctx.lineTo(px,py):ctx.moveTo(px,py); started=true; }
+      ctx.stroke();
+      ctx.fillStyle=css("--leap");
+      for(let i=0;i<nLp;i++){ if(!isFinite(lp[i].H)) break; const t=i*P.eps; ctx.beginPath(); ctx.arc(s.X(t),s.Y(lp[i].H),2.4,0,7); ctx.fill(); }
+    } else {
+      ctx.fillStyle=css("--exact"); ctx.font='11px '+css("--mono"); ctx.textAlign="left";
+      ctx.fillText("H conserved exactly", s.x0+8, s.Y(H0)-8);
+    }
+  }
+
+  // ---------- HISTOGRAM ----------
+  const histCv=$("hist");
+  const NB=46;
+  function drawHist(){
+    const {ctx,w,h}=fit(histCv);
+    ctx.clearRect(0,0,w,h);
+    const xMin=P.mu-4*P.sigma, xMax=P.mu+4*P.sigma;
+    // bin
+    const bins=new Array(NB).fill(0);
+    for(const q of chain){
+      let bi=Math.floor((q-xMin)/(xMax-xMin)*NB);
+      if(bi>=0&&bi<NB) bins[bi]++;
+    }
+    const binW=(xMax-xMin)/NB;
+    const pdfMax=1/(P.sigma*Math.sqrt(2*Math.PI));
+    let dMax=pdfMax;
+    if(chain.length){ for(const c of bins){ const d=c/(chain.length*binW); if(d>dMax) dMax=d; } }
+    dMax*=1.12;
+    const b={xMin,xMax,yMin:0,yMax:dMax, w,h, padL:40,padR:12,padT:12,padB:30};
+    const s=scale(b);
+
+    ctx.strokeStyle=css("--line"); ctx.lineWidth=1; ctx.strokeRect(s.x0,s.y1,s.x1-s.x0,s.y0-s.y1);
+
+    // bars in the active integrator's colour
+    const col=integrator==="exact"?css("--exact"):css("--leap");
+    if(chain.length){
+      ctx.fillStyle=integrator==="exact"?css("--exact-soft"):css("--leap-soft");
+      ctx.strokeStyle=col; ctx.lineWidth=1;
+      for(let i=0;i<NB;i++){
+        if(!bins[i]) continue;
+        const d=bins[i]/(chain.length*binW);
+        const x=s.X(xMin+i*binW), x2=s.X(xMin+(i+1)*binW), y=s.Y(d);
+        ctx.fillRect(x+0.6, y, (x2-x)-1.2, s.y0-y);
+        ctx.strokeRect(x+0.6, y, (x2-x)-1.2, s.y0-y);
+      }
+    }
+    // true pdf curve
+    ctx.strokeStyle=css("--txt"); ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let k=0;k<=160;k++){
+      const q=xMin+(xMax-xMin)*k/160;
+      const d=Math.exp(-((q-P.mu)**2)/(2*P.sigma*P.sigma))/(P.sigma*Math.sqrt(2*Math.PI));
+      const px=s.X(q), py=s.Y(d); k?ctx.lineTo(px,py):ctx.moveTo(px,py);
+    }
+    ctx.stroke();
+
+    ctx.font='10px '+css("--mono"); ctx.fillStyle=css("--txt-faint"); ctx.textAlign="center";
+    ctx.fillText("q", (s.x0+s.x1)/2, h-8);
+    [xMin,P.mu,xMax].forEach(v=>{ ctx.fillText(v.toFixed(1), s.X(v), s.y0+16); });
+  }
+
+  // ---------- TRACE ----------
+  const trCv=$("trace");
+  function drawTrace(){
+    const {ctx,w,h}=fit(trCv);
+    ctx.clearRect(0,0,w,h);
+    const yMin=P.mu-4*P.sigma, yMax=P.mu+4*P.sigma;
+    const W=500;
+    const start=Math.max(0,chain.length-W);
+    const view=chain.slice(start);
+    const b={xMin:0,xMax:Math.max(1,W-1),yMin,yMax, w,h, padL:40,padR:12,padT:12,padB:24};
+    const s=scale(b);
+
+    ctx.strokeStyle=css("--line"); ctx.lineWidth=1; ctx.strokeRect(s.x0,s.y1,s.x1-s.x0,s.y0-s.y1);
+    // μ band: μ ± σ
+    ctx.fillStyle=css("--band");
+    ctx.fillRect(s.x0, s.Y(P.mu+P.sigma), s.x1-s.x0, s.Y(P.mu-P.sigma)-s.Y(P.mu+P.sigma));
+    ctx.strokeStyle=css("--grid-2"); ctx.setLineDash([3,4]);
+    ctx.beginPath(); ctx.moveTo(s.x0,s.Y(P.mu)); ctx.lineTo(s.x1,s.Y(P.mu)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if(view.length>1){
+      ctx.strokeStyle=integrator==="exact"?css("--exact"):css("--leap");
+      ctx.lineWidth=1.25; ctx.globalAlpha=0.95;
+      ctx.beginPath();
+      for(let i=0;i<view.length;i++){ const px=s.X(i), py=s.Y(view[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+      ctx.stroke(); ctx.globalAlpha=1;
+    }
+    ctx.font='10px '+css("--mono"); ctx.fillStyle=css("--txt-faint"); ctx.textAlign="right";
+    ctx.fillText("μ", s.x0-6, s.Y(P.mu)+3);
+    ctx.fillText((P.mu+P.sigma).toFixed(1), s.x0-6, s.Y(P.mu+P.sigma)+3);
+    ctx.fillText((P.mu-P.sigma).toFixed(1), s.x0-6, s.Y(P.mu-P.sigma)+3);
+    ctx.textAlign="center"; ctx.fillText("iteration →", (s.x0+s.x1)/2, h-7);
+  }
+
+  function placeholder(ctx,w,h,msg){
+    ctx.fillStyle=css("--txt-faint"); ctx.font='12px '+css("--mono");
+    ctx.textAlign="center"; ctx.fillText(msg, w/2, h/2); ctx.textAlign="left";
+  }
+
+  // ---------- readouts ----------
+  function fmt(x,d=3){ return (x===null||x===undefined||!isFinite(x))?"—":x.toFixed(d); }
+  function updateReadouts(){
+    const w=omega(), T=P.L*P.eps;
+    $("ro-omega").textContent=fmt(w,3);
+    $("ro-period").textContent=fmt(period(),3);
+    $("ro-path").textContent=fmt(T,2);
+    $("ro-frac").textContent=fmt(T/period(),3);
+    const isLeap = integrator==="leapfrog";
+    if(lastProposal){
+      $("ro-h0").textContent=fmt(lastProposal.H0,3);
+      $("ro-dh").textContent= isLeap ? fmt(lastProposal.maxDH,4) : "0 (conserved)";
+      $("ro-alpha").textContent= isLeap ? fmt(lastProposal.alpha,3) : "1.000";
+      const acc=$("ro-acc");
+      acc.textContent=lastProposal.accepted?"accepted":"rejected";
+      acc.className="v "+(lastProposal.accepted?"good":"warn");
+    }
+    $("ro-n").textContent=String(nTotal);
+    $("ro-rate").textContent= nTotal? (100*nAccept/nTotal).toFixed(1)+"%" : "—";
+    if(chain.length>1){
+      const n=chain.length; let m=0; for(const q of chain) m+=q; m/=n;
+      let v=0; for(const q of chain) v+=(q-m)**2; v/=(n-1);
+      $("ro-mean").textContent=fmt(m,3);
+      $("ro-std").textContent=fmt(Math.sqrt(v),3);
+    } else { $("ro-mean").textContent="—"; $("ro-std").textContent="—"; }
+
+    // stability indicator
+    const ew=P.eps*w, st=$("stability");
+    if(ew>=2){ st.innerHTML='unstable · εω = <b>'+ew.toFixed(2)+'</b> ≥ 2'; }
+    else if(ew>1.4){ st.innerHTML='near limit · εω = <b>'+ew.toFixed(2)+'</b>'; }
+    else { st.innerHTML='stable · εω = <b class="ok">'+ew.toFixed(2)+'</b>'; }
+
+    $("hist-note").textContent = chain.length? chain.length+" samples" : "no samples yet";
+    $("hist-swatch").style.background = isLeap?css("--leap"):css("--exact");
+
+    // hide the leapfrog-only marks/labels when running exact dynamics
+    $("lg-leap").style.display = isLeap?"":"none";
+    $("energy-note").textContent = isLeap ? "H vs time  (step × ε)" : "H vs time — conserved";
+    $("dh-label").textContent = isLeap ? "max |ΔH| leapfrog" : "energy drift";
+    $("ro-dh").className = isLeap ? "v cyan" : "v gold";
+  }
+
+  // ---------- single-trajectory animation ----------
+  function traceOne(){
+    if(anim){ cancelAnimationFrame(anim); anim=null; }
+    if(lastProposal) ghost = { prop:lastProposal, intg:lastProposal._intg };  // keep previous trace faint
+    const pr=propose(currentQ);
+    pr._intg = integrator;
+    pr.accepted = Math.random() < pr.alpha;
+    lastProposal = pr;
+    // advance the chain by this proposal: next trace starts from this endpoint when accepted,
+    // or stays put when rejected (the Metropolis correction)
+    currentQ = pr.accepted ? pr.qStar : currentQ;
+    chain.push(currentQ); nTotal++; if(pr.accepted) nAccept++;
+
+    const draw=t=>{ drawPhase(t); drawEnergy(t); };
+    if(reduceMotion){ draw(1); drawHist(); drawTrace(); updateReadouts(); return; }
+    const dur=900; const t0=performance.now();
+    const tick=now=>{
+      let t=(now-t0)/dur; if(t>1)t=1;
+      const e=1-Math.pow(1-t,3); // ease-out
+      draw(e);
+      if(t<1){ anim=requestAnimationFrame(tick); }
+      else { anim=null; drawHist(); drawTrace(); }
+    };
+    anim=requestAnimationFrame(tick);
+    updateReadouts();
+  }
+
+  // ---------- batch sampler (quiet, live histogram) ----------
+  let running=false;
+  function runSampler(){
+    if(running){ running=false; $("run").textContent="Run sampler"; $("run").classList.add("primary"); return; }
+    running=true; $("run").textContent="Stop"; $("run").classList.remove("primary");
+    ghost=null;
+    const target = nTotal + 2500;
+    const step=()=>{
+      if(!running){ return; }
+      const batch=60;
+      for(let i=0;i<batch && nTotal<target;i++){
+        const pr=propose(currentQ);
+        const accept = Math.random()<pr.alpha;
+        if(accept) currentQ=pr.qStar;
+        chain.push(currentQ); nTotal++; if(accept) nAccept++;
+      }
+      drawHist(); drawTrace(); updateReadouts();
+      if(nTotal<target && running){ requestAnimationFrame(step); }
+      else { running=false; $("run").textContent="Run sampler"; $("run").classList.add("primary"); }
+    };
+    requestAnimationFrame(step);
+  }
+
+  function clearSamples(){
+    running=false; $("run").textContent="Run sampler"; $("run").classList.add("primary");
+    chain=[]; nAccept=0; nTotal=0; currentQ=P.mu; lastProposal=null; ghost=null;
+    if(anim){ cancelAnimationFrame(anim); anim=null; }
+    redrawAll();
+  }
+
+  function redrawAll(){ drawPhase(lastProposal?1:0); drawEnergy(lastProposal?1:0); drawHist(); drawTrace(); updateReadouts(); }
+
+  // ---------- wire controls ----------
+  function bindSlider(id, key, disp){
+    const el=$(id), out=$(id+"_v");
+    el.addEventListener("input",()=>{
+      P[key]=parseFloat(el.value);
+      out.textContent=disp(P[key]);
+      // changing geometry invalidates the displayed proposal
+      if(["mu","sigma","mass"].includes(key)){ currentQ=Math.min(Math.max(currentQ,P.mu-4*P.sigma),P.mu+4*P.sigma); }
+      lastProposal=null; ghost=null;
+      redrawAll();
+    });
+  }
+  bindSlider("mu","mu",v=>v.toFixed(1));
+  bindSlider("sigma","sigma",v=>v.toFixed(2));
+  bindSlider("eps","eps",v=>v.toFixed(2));
+  bindSlider("L","L",v=>String(v|0));
+  bindSlider("mass","mass",v=>v.toFixed(1));
+
+  document.querySelectorAll(".seg button").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      integrator=btn.dataset.int;
+      document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed", String(b===btn)));
+      lastProposal=null; ghost=null; redrawAll();
+    });
+  });
+
+  $("trace1").addEventListener("click", traceOne);
+  $("run").addEventListener("click", runSampler);
+  $("clear").addEventListener("click", clearSamples);
+
+  // ---------- phase-space zoom ----------
+  function drawPhaseNow(){ drawPhase(lastProposal?1:0); }
+  function setZoom(z){
+    phaseZoom = Math.min(8, Math.max(0.25, z));
+    $("zoom-lvl").textContent = phaseZoom.toFixed(phaseZoom<1?2:1)+"×";
+    drawPhaseNow();
+  }
+  $("zoom-in").addEventListener("click", ()=>setZoom(phaseZoom*1.3));
+  $("zoom-out").addEventListener("click", ()=>setZoom(phaseZoom/1.3));
+  $("zoom-reset").addEventListener("click", ()=>setZoom(1));
+  phaseCv.addEventListener("wheel", e=>{
+    e.preventDefault();
+    setZoom(phaseZoom * (e.deltaY<0 ? 1.12 : 1/1.12));
+  }, {passive:false});
+
+  let rAF=null;
+  window.addEventListener("resize",()=>{ if(rAF)cancelAnimationFrame(rAF); rAF=requestAnimationFrame(redrawAll); });
+
+  // init
+  currentQ=P.mu;
+  redrawAll();
+})();
+</script>
+</body>
+</html>
